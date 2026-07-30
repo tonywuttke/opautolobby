@@ -1,0 +1,17 @@
+# Gradle build outputs & cache
+.gradle/
+build/
+bin/
+
+# IDE / Editor files
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# OS temporary files
+Thumbs.db
+Desktop.ini
+.DS_Store
