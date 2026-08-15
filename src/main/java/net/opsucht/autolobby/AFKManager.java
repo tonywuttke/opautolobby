@@ -57,11 +57,12 @@ public class AFKManager {
 
         String upper = rawMessage.toUpperCase();
 
-        // Detect connection to any LOBBY server (e.g. "OPSUCHT » Verbinde zu LOBBY-4...")
+        // Detect transfer messages to LOBBY
         if (upper.contains("VERBINDE ZU LOBBY")) {
             setLobbyState(true);
         } else if (upper.contains("VERBINDE ZU CB") || upper.contains("VERBINDE ZU FARM") 
-                || upper.contains("VERBINDE ZU NETHER") || upper.contains("VERBINDE ZU END")) {
+                || upper.contains("VERBINDE ZU NETHER") || upper.contains("VERBINDE ZU END")
+                || upper.contains("VERBINDE ZU LUXURY")) {
             setLobbyState(false);
         }
     }
@@ -80,7 +81,7 @@ public class AFKManager {
                     if (newState) {
                         client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §7Lobby erkannt - AFK-Schutz pausiert."), false);
                     } else {
-                        client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §7Citybuild/Farm/Nether/End erkannt - AFK-Schutz gestartet!"), false);
+                        client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §7Citybuild/Farm/Nether/End/Luxury erkannt - AFK-Schutz gestartet!"), false);
                     }
                 }
             }
@@ -109,7 +110,7 @@ public class AFKManager {
                 resetAFKTimer();
             }
 
-            // Dynamically inspect scoreboard sidebar to detect current server (Lobby vs CB/Farm)
+            // Dynamically inspect scoreboard sidebar to detect current server (Lobby vs CB/Farm/Nether/End/Luxury)
             checkScoreboardServer(client);
 
             // Announce join ONCE only if not currently in lobby
@@ -184,26 +185,33 @@ public class AFKManager {
             ScoreboardObjective sidebarObj = scoreboard.getObjectiveForSlot(ScoreboardDisplaySlot.SIDEBAR);
             if (sidebarObj != null) {
                 String title = sidebarObj.getDisplayName().getString().toUpperCase();
-                if (title.contains("LOBBY")) {
-                    setLobbyState(true);
-                    return;
-                } else if (title.contains("CITYBUILD") || title.contains("CB") || title.contains("FARM")) {
-                    setLobbyState(false);
-                    return;
-                }
+                if (checkTextForServer(title)) return;
 
                 for (ScoreboardEntry entry : scoreboard.getScoreboardEntries(sidebarObj)) {
                     String owner = entry.owner().toUpperCase();
-                    if (owner.contains("LOBBY")) {
-                        setLobbyState(true);
-                        return;
-                    } else if (owner.contains("CITYBUILD") || owner.contains("CB-") || owner.contains("FARM")) {
-                        setLobbyState(false);
-                        return;
-                    }
+                    if (checkTextForServer(owner)) return;
                 }
             }
         } catch (Throwable ignored) {}
+    }
+
+    private boolean checkTextForServer(String text) {
+        if (text == null || text.isEmpty()) return false;
+        
+        // Lobby check
+        if (text.contains("LOBBY")) {
+            setLobbyState(true);
+            return true;
+        }
+        
+        // Subserver checks: CB, CITYBUILD, FARM, NETHER, END, LUXURY
+        if (text.contains("CB") || text.contains("CITYBUILD") || text.contains("FARM")
+                || text.contains("NETHER") || text.contains("END") || text.contains("LUXURY")) {
+            setLobbyState(false);
+            return true;
+        }
+        
+        return false;
     }
 
     private boolean isOnTargetServer(MinecraftClient client) {
