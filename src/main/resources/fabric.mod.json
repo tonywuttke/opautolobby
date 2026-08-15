@@ -3,16 +3,21 @@
   "id": "opautolobby",
   "version": "${version}",
   "name": "OPAutoLobby",
-  "description": "Auto-Lobby AFK Mod for opsucht.net",
+  "description": "Auto-Lobby AFK Mod for opsucht.net (LabyMod 4 / Fabric)",
   "authors": [
-    "Antigravity"
+    "tonywuttke"
   ],
-  "contact": {},
+  "contact": {
+    "homepage": "https://github.com/tonywuttke/opautolobby"
+  },
   "license": "MIT",
   "environment": "client",
   "entrypoints": {
     "client": [
       "net.opsucht.autolobby.OPAutoLobbyClient"
+    ],
+    "modmenu": [
+      "net.opsucht.autolobby.config.OPAutoLobbyModMenu"
     ]
   },
   "mixins": [],
