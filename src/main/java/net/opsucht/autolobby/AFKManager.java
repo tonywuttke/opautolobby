@@ -22,10 +22,9 @@ import java.util.Map;
 public class AFKManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("OPAutoLobbyAFK");
     
-    // Global Singleton & Static State across all potential reloads
+    // Global Singleton & Static State
     private static final AFKManager INSTANCE = new AFKManager();
     private static boolean globalInLobby = true;
-    private static long lastStatusMsgTime = 0L;
 
     private final ModConfig config;
 
@@ -57,8 +56,6 @@ public class AFKManager {
 
     public void handleChatMessage(String rawMessage) {
         if (rawMessage == null || rawMessage.isEmpty()) return;
-        
-        // Ignore the mod's own chat messages to prevent feedback loops
         if (rawMessage.contains("OPAutoLobby")) return;
 
         String upper = rawMessage.toUpperCase();
@@ -77,20 +74,7 @@ public class AFKManager {
         if (globalInLobby != newState) {
             globalInLobby = newState;
             INSTANCE.resetAFKTimer();
-            LOGGER.info("[OPAutoLobby] Global lobby state changed to: {}", newState);
-
-            long now = System.currentTimeMillis();
-            if (now - lastStatusMsgTime > 5000L) { // 5-second static rate limit
-                lastStatusMsgTime = now;
-                MinecraftClient client = MinecraftClient.getInstance();
-                if (client.player != null && INSTANCE.config.showStatusMessages) {
-                    if (newState) {
-                        client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §7Lobby erkannt - AFK-Schutz pausiert."), false);
-                    } else {
-                        client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §7Citybuild/Farm/Nether/End/Luxury erkannt - AFK-Schutz gestartet!"), false);
-                    }
-                }
-            }
+            LOGGER.info("[OPAutoLobby] Global lobby state updated to: {}", newState);
         }
     }
 
@@ -100,7 +84,7 @@ public class AFKManager {
                 return;
             }
 
-            // Verify if player is on target server
+            // Verify if player is connected to multiplayer server
             if (!isOnTargetServer(client)) {
                 if (wasOnTargetServer) {
                     wasOnTargetServer = false;
@@ -112,15 +96,15 @@ public class AFKManager {
 
             if (!wasOnTargetServer) {
                 wasOnTargetServer = true;
-                globalInLobby = true; // Default to Lobby mode on initial join
+                globalInLobby = true; // Default to Lobby mode on join
                 resetAFKTimer();
             }
 
-            // Dynamically inspect full scoreboard sidebar text to detect current server
+            // Inspect scoreboard sidebar to update current server state (Lobby vs CB/Farm/Nether/End/Luxury)
             checkScoreboardServer(client);
 
-            // Announce join ONCE only if not currently in lobby
-            if (!announcedJoin && !globalInLobby) {
+            // Announce mod status ONCE on join
+            if (!announcedJoin) {
                 announcedJoin = true;
                 if (config.showStatusMessages) {
                     client.player.sendMessage(
@@ -130,7 +114,7 @@ public class AFKManager {
                 }
             }
 
-            // If in Lobby, completely pause AFK tracking & commands!
+            // If in Lobby, pause AFK tracking completely
             if (globalInLobby) {
                 return;
             }
@@ -142,9 +126,6 @@ public class AFKManager {
                     warningDisplayed = false;
                     lobbyExecuted = false;
                     clearTitle(client);
-                    if (config.showStatusMessages) {
-                        client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §aW/A/S/D/Space Bewegung erkannt - AFK Timer zurückgesetzt."), false);
-                    }
                 }
                 return;
             }
@@ -153,7 +134,7 @@ public class AFKManager {
             long warningMs = config.warningTimeSeconds * 1000L;
             long lobbyMs = config.lobbyTimeSeconds * 1000L;
 
-            // Stage 2: Execute command (default /lobby) after configured lobby duration
+            // Stage 2: Execute command (default /lobby) after 3 minutes AFK
             if (afkDuration >= lobbyMs) {
                 if (!lobbyExecuted) {
                     lobbyExecuted = true;
@@ -162,21 +143,17 @@ public class AFKManager {
                 return;
             }
 
-            // Stage 1: Display red warning title & actionbar starting at configured warning duration
+            // Stage 1: Display red warning title & actionbar after 2 minutes AFK
             if (afkDuration >= warningMs) {
                 long remainingSeconds = (lobbyMs - afkDuration + 999) / 1000;
                 if (remainingSeconds < 0) remainingSeconds = 0;
 
                 if (!warningDisplayed) {
                     warningDisplayed = true;
-                    if (config.showStatusMessages) {
-                        client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §c⚠ WARNUNG: Du bist " + config.warningTimeSeconds + " Sekunden AFK!"), false);
-                    }
                 }
 
                 showWarningTitleAndActionbar(client, remainingSeconds);
 
-                // Play subtle warning sound once per second
                 long now = System.currentTimeMillis();
                 if (now - lastSoundTime >= 1000L) {
                     lastSoundTime = now;
@@ -213,13 +190,13 @@ public class AFKManager {
 
             String combined = sb.toString().toUpperCase();
 
-            // Priority 1: If sidebar contains LOBBY- or LOBBY, player is on a Lobby server
+            // Priority 1: Lobby check
             if (combined.contains("LOBBY-") || combined.contains("LOBBY")) {
                 setLobbyState(true);
                 return;
             }
 
-            // Priority 2: If sidebar contains active subserver tags (CB-, FARM-, NETHER-, END-, LUXURY-, CITYBUILD)
+            // Priority 2: Subserver check
             if (combined.contains("CB-") || combined.contains("CITYBUILD") || combined.contains("FARM-")
                     || combined.contains("NETHER-") || combined.contains("END-") || combined.contains("LUXURY-")) {
                 setLobbyState(false);
@@ -229,6 +206,13 @@ public class AFKManager {
 
     private boolean isOnTargetServer(MinecraftClient client) {
         try {
+            if (client.player == null || client.world == null) {
+                return false;
+            }
+            if (client.isInSingleplayer()) {
+                return false;
+            }
+
             if (config.serverDomains == null || config.serverDomains.isEmpty()) {
                 return true;
             }
@@ -244,7 +228,7 @@ public class AFKManager {
             }
 
             if (address == null) {
-                return !client.isInSingleplayer();
+                return true;
             }
 
             for (String domain : config.serverDomains) {
@@ -420,10 +404,6 @@ public class AFKManager {
                         } catch (Throwable ignored) {}
                     }
                 }
-            }
-
-            if (config.showStatusMessages) {
-                client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §c3 Minuten AFK erreicht. Command /" + commandStr + " wurde ausgeführt!"), false);
             }
         } catch (Throwable t) {
             LOGGER.error("Failed to execute lobby command", t);
