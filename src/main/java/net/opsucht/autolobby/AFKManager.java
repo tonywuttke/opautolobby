@@ -4,6 +4,10 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.network.ServerInfo;
 import net.minecraft.client.option.GameOptions;
+import net.minecraft.scoreboard.Scoreboard;
+import net.minecraft.scoreboard.ScoreboardDisplaySlot;
+import net.minecraft.scoreboard.ScoreboardEntry;
+import net.minecraft.scoreboard.ScoreboardObjective;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
@@ -26,11 +30,14 @@ public class AFKManager {
 
     private long lastMovementTime = System.currentTimeMillis();
     private long lastSoundTime = 0L;
+    private long lastStatusMsgTime = 0L;
     private boolean warningDisplayed = false;
     private boolean lobbyExecuted = false;
     private boolean wasOnTargetServer = false;
     private boolean announcedJoin = false;
-    private boolean inLobby = false;
+
+    // Default to inLobby = true on join, as players spawn in the main Lobby server
+    private boolean inLobby = true;
 
     private final Map<String, Method> methodCache = new HashMap<>();
 
@@ -52,28 +59,29 @@ public class AFKManager {
 
         // Detect connection to any LOBBY server (e.g. "OPSUCHT » Verbinde zu LOBBY-4...")
         if (upper.contains("VERBINDE ZU LOBBY")) {
-            if (!inLobby) {
-                inLobby = true;
-                resetAFKTimer();
-                LOGGER.info("[OPAutoLobby] Deactivating AFK module (Lobby detected)");
-                MinecraftClient client = MinecraftClient.getInstance();
-                if (client.player != null) {
-                    client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §7Lobby erkannt - AFK-Schutz pausiert."), false);
-                }
-            }
-            return;
-        }
-
-        // Detect connection to subservers (CB, FARM, NETHER, END) via explicit transfer messages
-        if (upper.contains("VERBINDE ZU CB") || upper.contains("VERBINDE ZU FARM") 
+            setLobbyState(true);
+        } else if (upper.contains("VERBINDE ZU CB") || upper.contains("VERBINDE ZU FARM") 
                 || upper.contains("VERBINDE ZU NETHER") || upper.contains("VERBINDE ZU END")) {
-            if (inLobby) {
-                inLobby = false;
-                resetAFKTimer();
-                LOGGER.info("[OPAutoLobby] Activating AFK module (Subserver detected)");
+            setLobbyState(false);
+        }
+    }
+
+    private void setLobbyState(boolean newState) {
+        if (this.inLobby != newState) {
+            this.inLobby = newState;
+            resetAFKTimer();
+            LOGGER.info("[OPAutoLobby] Lobby state changed to: {}", newState);
+
+            long now = System.currentTimeMillis();
+            if (now - lastStatusMsgTime > 2000L) {
+                lastStatusMsgTime = now;
                 MinecraftClient client = MinecraftClient.getInstance();
                 if (client.player != null) {
-                    client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §7Citybuild/Farm/Nether/End erkannt - AFK-Schutz gestartet!"), false);
+                    if (newState) {
+                        client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §7Lobby erkannt - AFK-Schutz pausiert."), false);
+                    } else {
+                        client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §7Citybuild/Farm/Nether/End erkannt - AFK-Schutz gestartet!"), false);
+                    }
                 }
             }
         }
@@ -97,8 +105,12 @@ public class AFKManager {
 
             if (!wasOnTargetServer) {
                 wasOnTargetServer = true;
+                inLobby = true; // Default to Lobby mode on initial join
                 resetAFKTimer();
             }
+
+            // Dynamically inspect scoreboard sidebar to detect current server (Lobby vs CB/Farm)
+            checkScoreboardServer(client);
 
             // Announce join ONCE only if not currently in lobby
             if (!announcedJoin && !inLobby) {
@@ -161,6 +173,37 @@ public class AFKManager {
         } catch (Throwable t) {
             LOGGER.error("Error in OPAutoLobby tick", t);
         }
+    }
+
+    private void checkScoreboardServer(MinecraftClient client) {
+        if (client.world == null) return;
+        try {
+            Scoreboard scoreboard = client.world.getScoreboard();
+            if (scoreboard == null) return;
+
+            ScoreboardObjective sidebarObj = scoreboard.getObjectiveForSlot(ScoreboardDisplaySlot.SIDEBAR);
+            if (sidebarObj != null) {
+                String title = sidebarObj.getDisplayName().getString().toUpperCase();
+                if (title.contains("LOBBY")) {
+                    setLobbyState(true);
+                    return;
+                } else if (title.contains("CITYBUILD") || title.contains("CB") || title.contains("FARM")) {
+                    setLobbyState(false);
+                    return;
+                }
+
+                for (ScoreboardEntry entry : scoreboard.getScoreboardEntries(sidebarObj)) {
+                    String owner = entry.owner().toUpperCase();
+                    if (owner.contains("LOBBY")) {
+                        setLobbyState(true);
+                        return;
+                    } else if (owner.contains("CITYBUILD") || owner.contains("CB-") || owner.contains("FARM")) {
+                        setLobbyState(false);
+                        return;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
     }
 
     private boolean isOnTargetServer(MinecraftClient client) {
@@ -388,6 +431,6 @@ public class AFKManager {
         resetAFKTimer();
         wasOnTargetServer = false;
         announcedJoin = false;
-        inLobby = false;
+        inLobby = true;
     }
 }
