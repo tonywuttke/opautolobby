@@ -54,8 +54,6 @@ public class AFKManager {
 
     public void handleChatMessage(String rawMessage) {
         if (rawMessage == null || rawMessage.isEmpty()) return;
-        
-        // Ignore self-sent OPAutoLobby messages
         if (rawMessage.contains("OPAutoLobby")) return;
 
         String upper = rawMessage.toUpperCase();
@@ -75,20 +73,11 @@ public class AFKManager {
     }
 
     private static synchronized void setLobbyState(boolean newState) {
-        // ONLY update state if a NEW transfer message changes the status
+        // Update internal state SILENTLY without printing any chat transition messages
         if (globalInLobby != newState) {
             globalInLobby = newState;
             INSTANCE.resetAFKTimer();
             LOGGER.info("[OPAutoLobby] State updated via chat transfer message: inLobby = {}", newState);
-
-            MinecraftClient client = MinecraftClient.getInstance();
-            if (client.player != null && INSTANCE.config.showStatusMessages) {
-                if (newState) {
-                    client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §7Lobby erkannt - AFK-Schutz pausiert."), false);
-                } else {
-                    client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §7Verbindung zu CB/Farm/Nether/End/Luxury erkannt - AFK-Schutz gestartet!"), false);
-                }
-            }
         }
     }
 

@@ -24,6 +24,9 @@ public class OPAutoLobbyClient implements ClientModInitializer {
 
         AFKManager afkManager = AFKManager.getInstance();
 
+        // Register in-game client commands (/opautolobby, /opautolobby gui, /autolobby)
+        CommandManager.register();
+
         // Register tick event to monitor player movement and AFK status
         ClientTickEvents.END_CLIENT_TICK.register(afkManager::tick);
 
