@@ -21,6 +21,12 @@ import java.util.Map;
 
 public class AFKManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("OPAutoLobbyAFK");
+    
+    // Global Singleton & Static State across all potential reloads
+    private static final AFKManager INSTANCE = new AFKManager();
+    private static boolean globalInLobby = true;
+    private static long lastStatusMsgTime = 0L;
+
     private final ModConfig config;
 
     private double lastX = 0.0;
@@ -30,19 +36,19 @@ public class AFKManager {
 
     private long lastMovementTime = System.currentTimeMillis();
     private long lastSoundTime = 0L;
-    private long lastStatusMsgTime = 0L;
     private boolean warningDisplayed = false;
     private boolean lobbyExecuted = false;
     private boolean wasOnTargetServer = false;
     private boolean announcedJoin = false;
 
-    // Default to inLobby = true on join, as players spawn in the main Lobby server
-    private boolean inLobby = true;
-
     private final Map<String, Method> methodCache = new HashMap<>();
 
-    public AFKManager() {
+    private AFKManager() {
         this.config = ModConfig.load();
+    }
+
+    public static AFKManager getInstance() {
+        return INSTANCE;
     }
 
     public ModConfig getConfig() {
@@ -67,18 +73,17 @@ public class AFKManager {
         }
     }
 
-    private void setLobbyState(boolean newState) {
-        // ONLY execute state changes if state actually toggles!
-        if (this.inLobby != newState) {
-            this.inLobby = newState;
-            resetAFKTimer();
-            LOGGER.info("[OPAutoLobby] Lobby state changed to: {}", newState);
+    private static synchronized void setLobbyState(boolean newState) {
+        if (globalInLobby != newState) {
+            globalInLobby = newState;
+            INSTANCE.resetAFKTimer();
+            LOGGER.info("[OPAutoLobby] Global lobby state changed to: {}", newState);
 
             long now = System.currentTimeMillis();
-            if (now - lastStatusMsgTime > 5000L) { // 5-second message throttle
+            if (now - lastStatusMsgTime > 5000L) { // 5-second static rate limit
                 lastStatusMsgTime = now;
                 MinecraftClient client = MinecraftClient.getInstance();
-                if (client.player != null) {
+                if (client.player != null && INSTANCE.config.showStatusMessages) {
                     if (newState) {
                         client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §7Lobby erkannt - AFK-Schutz pausiert."), false);
                     } else {
@@ -107,7 +112,7 @@ public class AFKManager {
 
             if (!wasOnTargetServer) {
                 wasOnTargetServer = true;
-                inLobby = true; // Default to Lobby mode on initial join
+                globalInLobby = true; // Default to Lobby mode on initial join
                 resetAFKTimer();
             }
 
@@ -115,16 +120,18 @@ public class AFKManager {
             checkScoreboardServer(client);
 
             // Announce join ONCE only if not currently in lobby
-            if (!announcedJoin && !inLobby) {
+            if (!announcedJoin && !globalInLobby) {
                 announcedJoin = true;
-                client.player.sendMessage(
-                    Text.literal("§c§lOPAutoLobby §r§8» §7Mod aktiv."),
-                    false
-                );
+                if (config.showStatusMessages) {
+                    client.player.sendMessage(
+                        Text.literal("§c§lOPAutoLobby §r§8» §7Mod aktiv."),
+                        false
+                    );
+                }
             }
 
             // If in Lobby, completely pause AFK tracking & commands!
-            if (inLobby) {
+            if (globalInLobby) {
                 return;
             }
 
@@ -135,7 +142,9 @@ public class AFKManager {
                     warningDisplayed = false;
                     lobbyExecuted = false;
                     clearTitle(client);
-                    client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §aW/A/S/D/Space Bewegung erkannt - AFK Timer zurückgesetzt."), false);
+                    if (config.showStatusMessages) {
+                        client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §aW/A/S/D/Space Bewegung erkannt - AFK Timer zurückgesetzt."), false);
+                    }
                 }
                 return;
             }
@@ -160,7 +169,9 @@ public class AFKManager {
 
                 if (!warningDisplayed) {
                     warningDisplayed = true;
-                    client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §c⚠ WARNUNG: Du bist " + config.warningTimeSeconds + " Sekunden AFK!"), false);
+                    if (config.showStatusMessages) {
+                        client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §c⚠ WARNUNG: Du bist " + config.warningTimeSeconds + " Sekunden AFK!"), false);
+                    }
                 }
 
                 showWarningTitleAndActionbar(client, remainingSeconds);
@@ -411,7 +422,9 @@ public class AFKManager {
                 }
             }
 
-            client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §c3 Minuten AFK erreicht. Command /" + commandStr + " wurde ausgeführt!"), false);
+            if (config.showStatusMessages) {
+                client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §c3 Minuten AFK erreicht. Command /" + commandStr + " wurde ausgeführt!"), false);
+            }
         } catch (Throwable t) {
             LOGGER.error("Failed to execute lobby command", t);
         }
@@ -441,6 +454,6 @@ public class AFKManager {
         resetAFKTimer();
         wasOnTargetServer = false;
         announcedJoin = false;
-        inLobby = true;
+        globalInLobby = true;
     }
 }

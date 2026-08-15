@@ -19,6 +19,7 @@ public class ModConfig {
     private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("opautolobby.json");
 
     public boolean enabled = true;
+    public boolean showStatusMessages = true;
     public List<String> serverDomains = new ArrayList<>(List.of("opsucht.net", "opsucht.de"));
     public int warningTimeSeconds = 120; // 2 minutes default
     public int lobbyTimeSeconds = 180;   // 3 minutes default
@@ -31,7 +32,7 @@ public class ModConfig {
                 if (config != null) {
                     if (config.serverDomains == null) config.serverDomains = new ArrayList<>(List.of("opsucht.net", "opsucht.de"));
                     if (config.command == null) config.command = "lobby";
-                    config.save(); // Save back to persist any missing fields
+                    config.save();
                     return config;
                 }
             } catch (Exception e) {
