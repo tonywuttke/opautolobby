@@ -44,10 +44,14 @@ public class AFKManager {
 
     public void handleChatMessage(String rawMessage) {
         if (rawMessage == null || rawMessage.isEmpty()) return;
+        
+        // Ignore the mod's own chat messages to prevent feedback loops
+        if (rawMessage.contains("OPAutoLobby")) return;
+
         String upper = rawMessage.toUpperCase();
 
         // Detect connection to any LOBBY server (e.g. "OPSUCHT » Verbinde zu LOBBY-4...")
-        if (upper.contains("VERBINDE ZU LOBBY") || upper.contains("LOBBY-")) {
+        if (upper.contains("VERBINDE ZU LOBBY")) {
             if (!inLobby) {
                 inLobby = true;
                 resetAFKTimer();
@@ -60,16 +64,17 @@ public class AFKManager {
             return;
         }
 
-        // Detect connection to subservers (CB, FARM, NETHER, END, e.g. "OPSUCHT » Verbinde zu CB-2...")
+        // Detect connection to subservers (CB, FARM, NETHER, END) via explicit transfer messages
         if (upper.contains("VERBINDE ZU CB") || upper.contains("VERBINDE ZU FARM") 
-                || upper.contains("VERBINDE ZU NETHER") || upper.contains("VERBINDE ZU END")
-                || upper.contains("CB-") || upper.contains("FARM-") || upper.contains("NETHER-") || upper.contains("END-")) {
-            inLobby = false;
-            resetAFKTimer();
-            LOGGER.info("[OPAutoLobby] Activating AFK module (Subserver detected)");
-            MinecraftClient client = MinecraftClient.getInstance();
-            if (client.player != null) {
-                client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §7Citybuild/Farm/Nether/End erkannt - AFK-Schutz gestartet!"), false);
+                || upper.contains("VERBINDE ZU NETHER") || upper.contains("VERBINDE ZU END")) {
+            if (inLobby) {
+                inLobby = false;
+                resetAFKTimer();
+                LOGGER.info("[OPAutoLobby] Activating AFK module (Subserver detected)");
+                MinecraftClient client = MinecraftClient.getInstance();
+                if (client.player != null) {
+                    client.player.sendMessage(Text.literal("§c§lOPAutoLobby §r§8» §7Citybuild/Farm/Nether/End erkannt - AFK-Schutz gestartet!"), false);
+                }
             }
         }
     }
