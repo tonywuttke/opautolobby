@@ -57,7 +57,7 @@ public class AFKManager {
 
         String upper = rawMessage.toUpperCase();
 
-        // Detect transfer messages to LOBBY
+        // Detect explicit server transfer messages (e.g. "OPSUCHT » Verbinde zu LOBBY-4...")
         if (upper.contains("VERBINDE ZU LOBBY")) {
             setLobbyState(true);
         } else if (upper.contains("VERBINDE ZU CB") || upper.contains("VERBINDE ZU FARM") 
@@ -68,13 +68,14 @@ public class AFKManager {
     }
 
     private void setLobbyState(boolean newState) {
+        // ONLY execute state changes if state actually toggles!
         if (this.inLobby != newState) {
             this.inLobby = newState;
             resetAFKTimer();
             LOGGER.info("[OPAutoLobby] Lobby state changed to: {}", newState);
 
             long now = System.currentTimeMillis();
-            if (now - lastStatusMsgTime > 2000L) {
+            if (now - lastStatusMsgTime > 5000L) { // 5-second message throttle
                 lastStatusMsgTime = now;
                 MinecraftClient client = MinecraftClient.getInstance();
                 if (client.player != null) {
@@ -110,7 +111,7 @@ public class AFKManager {
                 resetAFKTimer();
             }
 
-            // Dynamically inspect scoreboard sidebar to detect current server (Lobby vs CB/Farm/Nether/End/Luxury)
+            // Dynamically inspect full scoreboard sidebar text to detect current server
             checkScoreboardServer(client);
 
             // Announce join ONCE only if not currently in lobby
@@ -183,35 +184,36 @@ public class AFKManager {
             if (scoreboard == null) return;
 
             ScoreboardObjective sidebarObj = scoreboard.getObjectiveForSlot(ScoreboardDisplaySlot.SIDEBAR);
-            if (sidebarObj != null) {
-                String title = sidebarObj.getDisplayName().getString().toUpperCase();
-                if (checkTextForServer(title)) return;
+            if (sidebarObj == null) return;
 
-                for (ScoreboardEntry entry : scoreboard.getScoreboardEntries(sidebarObj)) {
-                    String owner = entry.owner().toUpperCase();
-                    if (checkTextForServer(owner)) return;
-                }
+            StringBuilder sb = new StringBuilder();
+            sb.append(sidebarObj.getDisplayName().getString()).append(" ");
+
+            for (ScoreboardEntry entry : scoreboard.getScoreboardEntries(sidebarObj)) {
+                sb.append(entry.owner()).append(" ");
+                try {
+                    var team = scoreboard.getScoreHolderTeam(entry.owner());
+                    if (team != null) {
+                        sb.append(team.getPrefix().getString()).append(" ");
+                        sb.append(team.getSuffix().getString()).append(" ");
+                    }
+                } catch (Throwable ignored) {}
+            }
+
+            String combined = sb.toString().toUpperCase();
+
+            // Priority 1: If sidebar contains LOBBY- or LOBBY, player is on a Lobby server
+            if (combined.contains("LOBBY-") || combined.contains("LOBBY")) {
+                setLobbyState(true);
+                return;
+            }
+
+            // Priority 2: If sidebar contains active subserver tags (CB-, FARM-, NETHER-, END-, LUXURY-, CITYBUILD)
+            if (combined.contains("CB-") || combined.contains("CITYBUILD") || combined.contains("FARM-")
+                    || combined.contains("NETHER-") || combined.contains("END-") || combined.contains("LUXURY-")) {
+                setLobbyState(false);
             }
         } catch (Throwable ignored) {}
-    }
-
-    private boolean checkTextForServer(String text) {
-        if (text == null || text.isEmpty()) return false;
-        
-        // Lobby check
-        if (text.contains("LOBBY")) {
-            setLobbyState(true);
-            return true;
-        }
-        
-        // Subserver checks: CB, CITYBUILD, FARM, NETHER, END, LUXURY
-        if (text.contains("CB") || text.contains("CITYBUILD") || text.contains("FARM")
-                || text.contains("NETHER") || text.contains("END") || text.contains("LUXURY")) {
-            setLobbyState(false);
-            return true;
-        }
-        
-        return false;
     }
 
     private boolean isOnTargetServer(MinecraftClient client) {
