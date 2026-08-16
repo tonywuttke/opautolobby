@@ -4,6 +4,10 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.network.ServerInfo;
 import net.minecraft.client.option.GameOptions;
+import net.minecraft.scoreboard.Scoreboard;
+import net.minecraft.scoreboard.ScoreboardDisplaySlot;
+import net.minecraft.scoreboard.ScoreboardEntry;
+import net.minecraft.scoreboard.ScoreboardObjective;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
@@ -21,7 +25,7 @@ public class AFKManager {
     // Global Singleton & Static State
     private static final AFKManager INSTANCE = new AFKManager();
     
-    // Default state: inLobby = true (AFK protection paused until "Verbinde zu CB/FARM/NETHER/END/LUXURY" message is received)
+    // Default state: inLobby = true (AFK protection paused until active gameplay subserver is detected)
     private static boolean globalInLobby = true;
 
     private final ModConfig config;
@@ -58,26 +62,22 @@ public class AFKManager {
 
         String upper = rawMessage.toUpperCase();
 
-        // 1. Deactivate AFK protection if "VERBINDE ZU LOBBY" message is sent
-        if (upper.contains("VERBINDE ZU LOBBY")) {
+        // Chat transfer message backup matching
+        if (upper.contains("VERBINDE ZU LOBBY") || upper.contains("SUPPORT")) {
             setLobbyState(true);
-        } 
-        // 2. Activate AFK protection if "VERBINDE ZU CB", "FARM", "NETHER", "END", or "LUXURY" message is sent
-        else if (upper.contains("VERBINDE ZU CB") 
-                || upper.contains("VERBINDE ZU FARM") 
-                || upper.contains("VERBINDE ZU NETHER") 
-                || upper.contains("VERBINDE ZU END")
+        } else if (upper.contains("VERBINDE ZU CB") || upper.contains("VERBINDE ZU FARM") 
+                || upper.contains("VERBINDE ZU NETHER") || upper.contains("VERBINDE ZU END")
                 || upper.contains("VERBINDE ZU LUXURY")) {
             setLobbyState(false);
         }
     }
 
     private static synchronized void setLobbyState(boolean newState) {
-        // Update internal state SILENTLY without printing any chat transition messages
+        // Update internal state SILENTLY without printing chat messages
         if (globalInLobby != newState) {
             globalInLobby = newState;
             INSTANCE.resetAFKTimer();
-            LOGGER.info("[OPAutoLobby] State updated via chat transfer message: inLobby = {}", newState);
+            LOGGER.info("[OPAutoLobby] State updated: inLobby = {}", newState);
         }
     }
 
@@ -102,6 +102,9 @@ public class AFKManager {
                 resetAFKTimer();
             }
 
+            // Inspect Scoreboard Sidebar for server state (LOBBY, SUPPORTER, CB, FARM, END, NETHER, LUXURY)
+            checkScoreboardServer(client);
+
             // Announce join ONCE per session
             if (!announcedJoin) {
                 announcedJoin = true;
@@ -113,7 +116,7 @@ public class AFKManager {
                 }
             }
 
-            // If in Lobby mode (globalInLobby == true), AFK protection is PAUSED
+            // If in Lobby mode (globalInLobby == true), AFK protection is DEACTIVATED / PAUSED
             if (globalInLobby) {
                 return;
             }
@@ -162,6 +165,45 @@ public class AFKManager {
         } catch (Throwable t) {
             LOGGER.error("Error in OPAutoLobby tick", t);
         }
+    }
+
+    private void checkScoreboardServer(MinecraftClient client) {
+        if (client.world == null) return;
+        try {
+            Scoreboard scoreboard = client.world.getScoreboard();
+            if (scoreboard == null) return;
+
+            ScoreboardObjective sidebarObj = scoreboard.getObjectiveForSlot(ScoreboardDisplaySlot.SIDEBAR);
+            if (sidebarObj == null) return;
+
+            StringBuilder sb = new StringBuilder();
+            sb.append(sidebarObj.getDisplayName().getString()).append(" ");
+
+            for (ScoreboardEntry entry : scoreboard.getScoreboardEntries(sidebarObj)) {
+                sb.append(entry.owner()).append(" ");
+                try {
+                    var team = scoreboard.getScoreHolderTeam(entry.owner());
+                    if (team != null) {
+                        sb.append(team.getPrefix().getString()).append(" ");
+                        sb.append(team.getSuffix().getString()).append(" ");
+                    }
+                } catch (Throwable ignored) {}
+            }
+
+            String combined = sb.toString().toUpperCase();
+
+            // 1. DISABLE AFK protection if sidebar contains "LOBBY" or "SUPPORTER"
+            if (combined.contains("LOBBY") || combined.contains("SUPPORTER") || combined.contains("SUPPORT")) {
+                setLobbyState(true);
+                return;
+            }
+
+            // 2. ENABLE AFK protection if sidebar contains "CB", "FARM", "END", "NETHER", or "LUXURY"
+            if (combined.contains("CB") || combined.contains("CITYBUILD") || combined.contains("FARM")
+                    || combined.contains("END") || combined.contains("NETHER") || combined.contains("LUXURY")) {
+                setLobbyState(false);
+            }
+        } catch (Throwable ignored) {}
     }
 
     private boolean isOnTargetServer(MinecraftClient client) {
